@@ -104,6 +104,7 @@ func compileFamily(f Generator, resource Resource) (*compiledFamily, error) {
 		Help:      f.Help,
 		Each: compiledEach{
 			Path:          eachPath,
+			ValueFromList: f.Each.ValueFromList,
 			ValueFrom:     valuePath,
 			Value:         f.Each.Value,
 			LabelFromKey:  f.Each.LabelFromKey,
@@ -178,6 +179,7 @@ type compiledEach struct {
 	Path          valuePath
 	Value         *float64
 	ValueFrom     valuePath
+	ValueFromList []string
 	LabelFromKey  string
 	LabelFromPath map[string]valuePath
 }
@@ -199,6 +201,23 @@ func (e compiledEach) Values(obj map[string]interface{}) (result []eachValue, er
 		} else {
 			addPathLabels(v, e.LabelFromPath, ev.Labels)
 			result = append(result, *ev)
+		}
+	} else if len(e.ValueFromList) > 0 {
+		value := e.ValueFrom.Get(v)
+		switch value.(type) {
+		case string:
+			for _, entry := range e.ValueFromList {
+				ev, err := e.value(value == entry)
+				if err != nil {
+					onError(err)
+				} else {
+					addPathLabels(v, e.LabelFromPath, ev.Labels)
+					ev.Labels["key"] = entry
+					result = append(result, *ev)
+				}
+			}
+		default:
+			onError(fmt.Errorf("expected value for path to be string, got %T", value))
 		}
 	} else {
 		switch iter := v.(type) {

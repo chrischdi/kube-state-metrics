@@ -36,6 +36,8 @@ type GroupVersionKind struct {
 type MetricPer struct {
 	// Path is the path to the value to generate metric(s) for.
 	Path []string `yaml:"path" json:"path"`
+	// ValueFromList TODO
+	ValueFromList []string `yaml:"valueFromList" json:"valueFromList"`
 	// ValueFrom is the path to a numeric field under Path that will be the metric value.
 	ValueFrom []string `yaml:"valueFrom" json:"valueFrom"`
 	// Value defines a static value for the metric.
