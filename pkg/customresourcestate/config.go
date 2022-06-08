@@ -38,6 +38,8 @@ type MetricPer struct {
 	Path []string `yaml:"path" json:"path"`
 	// ValueFrom is the path to a numeric field under Path that will be the metric value.
 	ValueFrom []string `yaml:"valueFrom" json:"valueFrom"`
+	// Value defines a static value for the metric.
+	Value *float64 `yaml:"value" json:"value"`
 	// LabelFromKey adds a label with the given name if Path is an object. The label value will be the object key.
 	LabelFromKey string `yaml:"labelFromKey" json:"labelFromKey"`
 	// LabelsFromPath adds additional labels where the value of the label is taken from a field under Path.

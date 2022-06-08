@@ -105,6 +105,7 @@ func compileFamily(f Generator, resource Resource) (*compiledFamily, error) {
 		Each: compiledEach{
 			Path:          eachPath,
 			ValueFrom:     valuePath,
+			Value:         f.Each.Value,
 			LabelFromKey:  f.Each.LabelFromKey,
 			LabelFromPath: eachLabelsFromPath,
 		},
@@ -175,6 +176,7 @@ func (s fieldMetrics) ListWatch(customResourceClient interface{}, ns string, fie
 
 type compiledEach struct {
 	Path          valuePath
+	Value         *float64
 	ValueFrom     valuePath
 	LabelFromKey  string
 	LabelFromPath map[string]valuePath
@@ -190,38 +192,48 @@ func (e compiledEach) Values(obj map[string]interface{}) (result []eachValue, er
 	onError := func(err error) {
 		errors = append(errors, fmt.Errorf("%s: %v", e.Path, err))
 	}
-	switch iter := v.(type) {
-	case map[string]interface{}:
-		for key, it := range iter {
-			ev, err := e.value(it)
-			if err != nil {
-				onError(fmt.Errorf("[%s]: %w", key, err))
-				continue
-			}
-			if key != "" && e.LabelFromKey != "" {
-				ev.Labels[e.LabelFromKey] = key
-			}
-			addPathLabels(it, e.LabelFromPath, ev.Labels)
-			result = append(result, *ev)
-		}
-	case []interface{}:
-		for i, it := range iter {
-			value, err := e.value(it)
-			if err != nil {
-				onError(fmt.Errorf("[%d]: %w", i, err))
-				continue
-			}
-			addPathLabels(it, e.LabelFromPath, value.Labels)
-			result = append(result, *value)
-		}
-	default:
-		value, err := e.value(v)
+	if e.Value != nil {
+		ev, err := e.value(*e.Value)
 		if err != nil {
 			onError(err)
-			break
+		} else {
+			addPathLabels(v, e.LabelFromPath, ev.Labels)
+			result = append(result, *ev)
 		}
-		addPathLabels(v, e.LabelFromPath, value.Labels)
-		result = append(result, *value)
+	} else {
+		switch iter := v.(type) {
+		case map[string]interface{}:
+			for key, it := range iter {
+				ev, err := e.value(it)
+				if err != nil {
+					onError(fmt.Errorf("[%s]: %w", key, err))
+					continue
+				}
+				if key != "" && e.LabelFromKey != "" {
+					ev.Labels[e.LabelFromKey] = key
+				}
+				addPathLabels(it, e.LabelFromPath, ev.Labels)
+				result = append(result, *ev)
+			}
+		case []interface{}:
+			for i, it := range iter {
+				value, err := e.value(it)
+				if err != nil {
+					onError(fmt.Errorf("[%d]: %w", i, err))
+					continue
+				}
+				addPathLabels(it, e.LabelFromPath, value.Labels)
+				result = append(result, *value)
+			}
+		default:
+			value, err := e.value(v)
+			if err != nil {
+				onError(err)
+				break
+			}
+			addPathLabels(v, e.LabelFromPath, value.Labels)
+			result = append(result, *value)
+		}
 	}
 	// return results in a consistent order (simplifies testing)
 	sort.Slice(result, func(i, j int) bool {
