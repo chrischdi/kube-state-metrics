@@ -31,6 +31,7 @@ Usage:
 
 Available Commands:
   completion  Generate completion script for kube-state-metrics.
+  generate    Generate custom resource metrics configuration from go-code markers.
   help        Help about any command
   version     Print version information.
 
