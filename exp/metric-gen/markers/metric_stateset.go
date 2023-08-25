@@ -61,8 +61,6 @@ func (stateSetMarker) help() *markers.DefinitionHelp {
 }
 
 func (s stateSetMarker) ToGenerator(basePath ...string) *customresourcestate.Generator {
-	path := basePath
-
 	var valueFrom []string
 	var err error
 	if s.JSONPath != nil {
@@ -87,13 +85,10 @@ func (s stateSetMarker) ToGenerator(basePath ...string) *customresourcestate.Gen
 		Each: customresourcestate.Metric{
 			Type: customresourcestate.MetricTypeStateSet,
 			StateSet: &customresourcestate.MetricStateSet{
-				MetricMeta: customresourcestate.MetricMeta{
-					Path:           path,
-					LabelsFromPath: labelsFromPath,
-				},
-				List:      s.List,
-				LabelName: s.LabelName,
-				ValueFrom: valueFrom,
+				MetricMeta: newMetricMeta(basePath, "", s.LabelsFromPath),
+				List:       s.List,
+				LabelName:  s.LabelName,
+				ValueFrom:  valueFrom,
 			},
 		},
 	}

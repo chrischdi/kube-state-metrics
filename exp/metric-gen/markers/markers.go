@@ -34,15 +34,14 @@ var (
 
 // +controllertools:marker:generateHelp:category=CRD
 
-// ResourceMarker is a marker that knows how to apply itself to a particular
-// version in a CRD Spec.
+// ResourceMarker is a marker that configures a custom resource.
 type ResourceMarker interface {
 	// ApplyToCRD applies this marker to the given CRD, in the given version
 	// within that CRD.  It's called after everything else in the CRD is populated.
 	ApplyToResource(resource *customresourcestate.Resource) error
 }
 
-// LocalGeneratorMarker is a marker that knows how to create a generator from itself.
+// LocalGeneratorMarker is a marker that creates a custom resource metric generator.
 type LocalGeneratorMarker interface {
 	// ApplyToCRD applies this marker to the given CRD, in the given version
 	// within that CRD.  It's called after everything else in the CRD is populated.

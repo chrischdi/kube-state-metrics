@@ -62,10 +62,7 @@ func (gaugeMarker) help() *markers.DefinitionHelp {
 }
 
 func (g gaugeMarker) ToGenerator(basePath ...string) *customresourcestate.Generator {
-	additionalPath, err := g.JSONPath.Parse()
-	if err != nil {
-		klog.Fatal(err)
-	}
+	var err error
 	var valueFrom []string
 	if g.ValueFrom != nil {
 		valueFrom, err = g.ValueFrom.Parse()
@@ -74,33 +71,14 @@ func (g gaugeMarker) ToGenerator(basePath ...string) *customresourcestate.Genera
 		}
 	}
 
-	labelsFromPath := map[string][]string{}
-	for k, v := range g.LabelsFromPath {
-		path := []string{}
-		var err error
-		if v != "." {
-			path, err = v.Parse()
-			if err != nil {
-				klog.Fatal(err)
-			}
-		}
-		labelsFromPath[k] = path
-	}
-
-	// nolint:gocritic
-	path := append(basePath, additionalPath...)
-
 	return &customresourcestate.Generator{
 		Name: g.Name,
 		Help: g.Help,
 		Each: customresourcestate.Metric{
 			Type: customresourcestate.MetricTypeGauge,
 			Gauge: &customresourcestate.MetricGauge{
-				NilIsZero: g.NilIsZero,
-				MetricMeta: customresourcestate.MetricMeta{
-					Path:           path,
-					LabelsFromPath: labelsFromPath,
-				},
+				NilIsZero:    g.NilIsZero,
+				MetricMeta:   newMetricMeta(basePath, g.JSONPath, g.LabelsFromPath),
 				LabelFromKey: g.LabelFromKey,
 				ValueFrom:    valueFrom,
 			},

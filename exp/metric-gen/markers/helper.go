@@ -19,7 +19,10 @@ import (
 	"fmt"
 
 	"k8s.io/client-go/util/jsonpath"
+	"k8s.io/klog/v2"
 	ctrlmarkers "sigs.k8s.io/controller-tools/pkg/markers"
+
+	"k8s.io/kube-state-metrics/v2/pkg/customresourcestate"
 )
 
 type markerDefinitionWithHelp struct {
@@ -84,4 +87,35 @@ func (j jsonPath) Parse() ([]string, error) {
 	}
 
 	return ret, nil
+}
+
+func newMetricMeta(basePath []string, j jsonPath, jsonLabelsFromPath map[string]jsonPath) customresourcestate.MetricMeta {
+	path := basePath
+	if j != "" {
+		valueFrom, err := j.Parse()
+		if err != nil {
+			klog.Fatal(err)
+		}
+		if len(valueFrom) > 0 {
+			path = append(path, valueFrom...)
+		}
+	}
+
+	labelsFromPath := map[string][]string{}
+	for k, v := range jsonLabelsFromPath {
+		path := []string{}
+		var err error
+		if v != "." {
+			path, err = v.Parse()
+			if err != nil {
+				klog.Fatal(err)
+			}
+		}
+		labelsFromPath[k] = path
+	}
+
+	return customresourcestate.MetricMeta{
+		Path:           path,
+		LabelsFromPath: labelsFromPath,
+	}
 }

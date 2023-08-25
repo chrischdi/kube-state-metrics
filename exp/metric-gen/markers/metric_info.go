@@ -18,8 +18,6 @@ package markers
 import (
 	"sigs.k8s.io/controller-tools/pkg/markers"
 
-	"k8s.io/klog/v2"
-
 	"k8s.io/kube-state-metrics/v2/pkg/customresourcestate"
 )
 
@@ -60,40 +58,13 @@ func (infoMarker) help() *markers.DefinitionHelp {
 }
 
 func (i infoMarker) ToGenerator(basePath ...string) *customresourcestate.Generator {
-	path := basePath
-	if i.JSONPath != "" {
-		valueFrom, err := i.JSONPath.Parse()
-		if err != nil {
-			klog.Fatal(err)
-		}
-		if len(valueFrom) > 0 {
-			path = append(path, valueFrom...)
-		}
-	}
-
-	labelsFromPath := map[string][]string{}
-	for k, v := range i.LabelsFromPath {
-		path := []string{}
-		var err error
-		if v != "." {
-			path, err = v.Parse()
-			if err != nil {
-				klog.Fatal(err)
-			}
-		}
-		labelsFromPath[k] = path
-	}
-
 	return &customresourcestate.Generator{
 		Name: i.Name,
 		Help: i.Help,
 		Each: customresourcestate.Metric{
 			Type: customresourcestate.MetricTypeInfo,
 			Info: &customresourcestate.MetricInfo{
-				MetricMeta: customresourcestate.MetricMeta{
-					Path:           path,
-					LabelsFromPath: labelsFromPath,
-				},
+				MetricMeta:   newMetricMeta(basePath, i.JSONPath, i.LabelsFromPath),
 				LabelFromKey: i.LabelFromKey,
 			},
 		},
