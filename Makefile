@@ -43,9 +43,11 @@ licensecheck:
 
 lint: shellcheck licensecheck
 	golangci-lint run
+	cd exp/metric-gen && golangci-lint run
 
 lint-fix:
 	golangci-lint run --fix -v
+	cd exp/metric-gen && golangci-lint run --fix -v
 
 doccheck: generate
 	@echo "- Checking if the generated documentation is up to date..."
@@ -63,11 +65,18 @@ doccheck: generate
 build-local:
 	GOOS=$(OS) GOARCH=$(ARCH) CGO_ENABLED=0 go build -ldflags "-s -w -X ${PKG}/version.Version=${TAG} -X ${PKG}/version.Revision=${GIT_COMMIT} -X ${PKG}/version.Branch=${BRANCH} -X ${PKG}/version.BuildUser=${USER}@${HOST} -X ${PKG}/version.BuildDate=${BUILD_DATE}" -o kube-state-metrics
 
-build: kube-state-metrics
+build-metric-gen-local:
+	cd exp/metric-gen && GOOS=$(OS) GOARCH=$(ARCH) CGO_ENABLED=0 go build -ldflags "-s -w -X ${PKG}/version.Version=${TAG} -X ${PKG}/version.Revision=${GIT_COMMIT} -X ${PKG}/version.Branch=${BRANCH} -X ${PKG}/version.BuildUser=${USER}@${HOST} -X ${PKG}/version.BuildDate=${BUILD_DATE}" -o ../../metric-gen
+
+build: kube-state-metrics metric-gen
 
 kube-state-metrics:
 	# Need to update git setting to prevent failing builds due to https://github.com/docker-library/golang/issues/452
 	${DOCKER_CLI} run --rm -v "${PWD}:/go/src/k8s.io/kube-state-metrics" -w /go/src/k8s.io/kube-state-metrics -e GOOS=$(OS) -e GOARCH=$(ARCH) golang:${GO_VERSION} git config --global --add safe.directory "*" && make build-local
+
+metric-gen:
+	# Need to update git setting to prevent failing builds due to https://github.com/docker-library/golang/issues/452
+	${DOCKER_CLI} run --rm -v "${PWD}:/go/src/k8s.io/kube-state-metrics" -w /go/src/k8s.io/kube-state-metrics -e GOOS=$(OS) -e GOARCH=$(ARCH) golang:${GO_VERSION} git config --global --add safe.directory "*" && make build-metric-gen-local
 
 test-unit:
 	GOOS=$(shell uname -s | tr A-Z a-z) GOARCH=$(ARCH) $(TESTENVVAR) go test --race $(FLAGS) $(PKGS)
@@ -114,7 +123,7 @@ push-multi-arch:
 	${DOCKER_CLI} manifest push --purge $(IMAGE):$(TAG)
 
 clean:
-	rm -f kube-state-metrics
+	rm -f kube-state-metrics metric-gen
 	git clean -Xfd .
 
 e2e:

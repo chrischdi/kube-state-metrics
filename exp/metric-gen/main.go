@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/prometheus/common/version"
 	"github.com/spf13/pflag"
 	"sigs.k8s.io/controller-tools/pkg/genall"
 	"sigs.k8s.io/controller-tools/pkg/genall/help"
@@ -26,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-tools/pkg/loader"
 	"sigs.k8s.io/controller-tools/pkg/markers"
 
+	"k8s.io/klog/v2"
 	"k8s.io/kube-state-metrics/v2/exp/metric-gen/generator"
 )
 
@@ -39,9 +41,10 @@ var (
 )
 
 func main() {
-	var whichMarkersFlag bool
+	var whichMarkersFlag, versionFlag bool
 
-	pflag.CommandLine.BoolVarP(&whichMarkersFlag, "which-markers", "w", false, "print out all markers available with the requested generators")
+	pflag.CommandLine.BoolVarP(&whichMarkersFlag, "which-markers", "w", false, "Print out all markers available with the requested generators.")
+	pflag.CommandLine.BoolVarP(&versionFlag, "version", "v", false, "Print verison information.")
 
 	pflag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage of %s:\n\n", os.Args[0])
@@ -52,6 +55,11 @@ func main() {
 	}
 
 	pflag.Parse()
+
+	if versionFlag {
+		fmt.Printf("%s\n", version.Print("metric-gen"))
+		klog.FlushAndExit(klog.ExitFlushTimeout, 0)
+	}
 
 	// Register the metric generator itself as marker so genall.FromOptions is able to initialize the runtime properly.
 	// This also registers the markers inside the optionsRegistry so its available to print the marker docs.
