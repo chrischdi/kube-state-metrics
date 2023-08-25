@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-tools/pkg/markers"
 
 	"k8s.io/klog/v2"
+
 	"k8s.io/kube-state-metrics/v2/exp/metric-gen/generator"
 )
 
@@ -44,7 +45,7 @@ func main() {
 	var whichMarkersFlag, versionFlag bool
 
 	pflag.CommandLine.BoolVarP(&whichMarkersFlag, "which-markers", "w", false, "Print out all markers available with the requested generators.")
-	pflag.CommandLine.BoolVarP(&versionFlag, "version", "v", false, "Print verison information.")
+	pflag.CommandLine.BoolVarP(&versionFlag, "version", "v", false, "Print version information.")
 
 	pflag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage of %s:\n\n", os.Args[0])
