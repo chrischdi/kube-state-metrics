@@ -49,7 +49,7 @@ func (g CustomResourceConfigGenerator) RegisterMarkers(into *ctrlmarkers.Registr
 }
 
 // Generate generates artifacts produced by this marker.
-// It's called *after* RegisterMarkers has been called.
+// It's called after RegisterMarkers has been called.
 func (g CustomResourceConfigGenerator) Generate(ctx *genall.GenerationContext) error {
 	// Create the parser which is specific to the metric generator.
 	parser := newParser(
@@ -60,62 +60,55 @@ func (g CustomResourceConfigGenerator) Generate(ctx *genall.GenerationContext) e
 	)
 
 	// Loop over all passed packages.
-	for _, root := range ctx.Roots {
+	for _, pkg := range ctx.Roots {
 		// skip packages which don't import metav1 because they can't define a CRD without meta v1.
-		metav1 := root.Imports()["k8s.io/apimachinery/pkg/apis/meta/v1"]
+		metav1 := pkg.Imports()["k8s.io/apimachinery/pkg/apis/meta/v1"]
 		if metav1 == nil {
 			continue
 		}
 
-		// parse the given package to feed crd.FindKubeKinds to find CRD objects.
-		parser.NeedPackage(root)
+		// parse the given package to feed crd.FindKubeKinds with Kubernetes Objects.
+		parser.NeedPackage(pkg)
+
 		kubeKinds := crd.FindKubeKinds(parser.Parser, metav1)
 		if len(kubeKinds) == 0 {
 			klog.Fatalf("no objects in the roots")
 		}
 
+		// Create metrics for all Custom Resources in this package.
+		// This creates the customresourcestate.Resource object which contains all metric
+		// definitions for the Custom Resource, if it is part of the package.
 		for _, gv := range kubeKinds {
-			// Create customresourcestate.Resource for each CRD which contains all metric
-			// definitions for the CRD.
-			parser.NeedResourceFor(gv)
+			parser.NeedResourceFor(pkg, gv)
 		}
 	}
 
-	// Build customresourcestate configuration file from generated data.
+	// Initialize empty customresourcestate configuration file and fill it with the
+	// customresourcestate.Resource objects from the parser.
 	metrics := customresourcestate.Metrics{
 		Spec: customresourcestate.MetricsSpec{
 			Resources: []customresourcestate.Resource{},
 		},
 	}
 
-	// Sort the resources to get a deterministic output.
-
 	for _, resource := range parser.CustomResourceStates {
+		if resource == nil {
+			continue
+		}
 		if len(resource.Metrics) > 0 {
-			// sort the metrics
+			// Sort the metrics to get a deterministic output.
 			sort.Slice(resource.Metrics, func(i, j int) bool {
 				return resource.Metrics[i].Name < resource.Metrics[j].Name
 			})
 
-			metrics.Spec.Resources = append(metrics.Spec.Resources, resource)
+			metrics.Spec.Resources = append(metrics.Spec.Resources, *resource)
 		}
 	}
 
+	// Sort the resources by GVK to get a deterministic output.
 	sort.Slice(metrics.Spec.Resources, func(i, j int) bool {
-		if metrics.Spec.Resources[i].MetricNamePrefix == nil && metrics.Spec.Resources[j].MetricNamePrefix == nil {
-			a := metrics.Spec.Resources[i].GroupVersionKind.Group + "/" + metrics.Spec.Resources[i].GroupVersionKind.Version + "/" + metrics.Spec.Resources[i].GroupVersionKind.Kind
-			b := metrics.Spec.Resources[j].GroupVersionKind.Group + "/" + metrics.Spec.Resources[j].GroupVersionKind.Version + "/" + metrics.Spec.Resources[j].GroupVersionKind.Kind
-			return a < b
-		}
-
-		// Either a or b will not be the empty string, so we can compare them.
-		var a, b string
-		if metrics.Spec.Resources[i].MetricNamePrefix != nil {
-			a = *metrics.Spec.Resources[i].MetricNamePrefix
-		}
-		if metrics.Spec.Resources[j].MetricNamePrefix != nil {
-			b = *metrics.Spec.Resources[j].MetricNamePrefix
-		}
+		a := metrics.Spec.Resources[i].GroupVersionKind.String()
+		b := metrics.Spec.Resources[j].GroupVersionKind.String()
 		return a < b
 	})
 

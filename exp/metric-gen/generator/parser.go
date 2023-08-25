@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"go/ast"
 	"go/types"
-	"sort"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -35,82 +34,65 @@ import (
 type parser struct {
 	*crd.Parser
 
-	CustomResourceStates map[schema.GroupKind]customresourcestate.Resource
-	FlattenedMetrics     map[crd.TypeIdent][]customresourcestate.Metric
+	CustomResourceStates map[crd.TypeIdent]*customresourcestate.Resource
 }
 
 func newParser(p *crd.Parser) *parser {
 	return &parser{
 		Parser:               p,
-		CustomResourceStates: make(map[schema.GroupKind]customresourcestate.Resource),
-		FlattenedMetrics:     make(map[crd.TypeIdent][]customresourcestate.Metric),
+		CustomResourceStates: make(map[crd.TypeIdent]*customresourcestate.Resource),
 	}
 }
 
-func (p *parser) NeedResourceFor(groupKind schema.GroupKind) {
-	if _, exists := p.CustomResourceStates[groupKind]; exists {
+// NeedResourceFor creates the customresourcestate.Resource object for the given
+// GroupKind located at the package identified by packageID.
+func (p *parser) NeedResourceFor(pkg *loader.Package, groupKind schema.GroupKind) {
+	typeIdent := crd.TypeIdent{Package: pkg, Name: groupKind.Kind}
+	// Skip if type was already processed.
+	if _, exists := p.CustomResourceStates[typeIdent]; exists {
 		return
 	}
 
-	var packages []*loader.Package
-	for pkg, gv := range p.GroupVersions {
-		if gv.Group != groupKind.Group {
-			continue
-		}
-		packages = append(packages, pkg)
+	// Already mark the cacheID so the next time it enters NeedResourceFor it skips early.
+	p.CustomResourceStates[typeIdent] = nil
+
+	// Build the type identifier for the custom resource.
+	typeInfo := p.Types[typeIdent]
+	// typeInfo is nil if this GroupKind is not part of this package. In that case
+	// we have nothing to process.
+	if typeInfo == nil {
+		return
 	}
 
+	// Skip if gvk marker is not set. This marker is the opt-in for creating metrics
+	// for a custom resource.
+	if m := typeInfo.Markers.Get(markers.GVKMarkerName); m == nil {
+		return
+	}
+
+	// Initialize the Resource object.
 	resource := customresourcestate.Resource{
 		GroupVersionKind: customresourcestate.GroupVersionKind{
-			Group: groupKind.Group,
-			Kind:  groupKind.Kind,
+			Group:   groupKind.Group,
+			Kind:    groupKind.Kind,
+			Version: p.GroupVersions[pkg].Version,
 		},
+		// Create the metrics generators for the custom resource.
+		Metrics: p.NeedMetricsGeneratorFor(typeIdent),
 	}
 
-	for _, pkg := range packages {
-		typeIdent := crd.TypeIdent{Package: pkg, Name: groupKind.Kind}
-		typeInfo := p.Types[typeIdent]
-		if typeInfo == nil {
-			continue
-		}
-
-		// Skip if gvk marker is not set to not create configuration for CRs used in other CRs.
-		// E.g. to not create configuration for KubeadmControlPlaneTemplate.
-		if m := typeInfo.Markers.Get(markers.GVKMarkerName); m == nil {
-			continue
-		}
-
-		resource.Metrics = p.NeedMetricsGeneratorFor(typeIdent)
-
-		sort.Slice(resource.Metrics, func(i, j int) bool {
-			return resource.Metrics[i].Name < resource.Metrics[j].Name
-		})
-
-		if resource.GroupVersionKind.Version != "" {
-			klog.Fatal("GroupVersionKind.Version is already set", "resource", resource)
-		}
-		resource.GroupVersionKind.Version = p.GroupVersions[pkg].Version
-	}
-
-	for _, pkg := range packages {
-		typeIdent := crd.TypeIdent{Package: pkg, Name: groupKind.Kind}
-		typeInfo := p.Types[typeIdent]
-		if typeInfo == nil {
-			continue
-		}
-
-		for _, markerVals := range typeInfo.Markers {
-			for _, val := range markerVals {
-				if resourceMarker, isResourceMarker := val.(markers.ResourceMarker); isResourceMarker {
-					if err := resourceMarker.ApplyToResource(&resource); err != nil {
-						pkg.AddError(loader.ErrFromNode(err /* an okay guess */, typeInfo.RawSpec))
-					}
+	// Iterate through all markers and run the ApplyToResource function of the ResourceMarkers.
+	for _, markerVals := range typeInfo.Markers {
+		for _, val := range markerVals {
+			if resourceMarker, isResourceMarker := val.(markers.ResourceMarker); isResourceMarker {
+				if err := resourceMarker.ApplyToResource(&resource); err != nil {
+					pkg.AddError(loader.ErrFromNode(err /* an okay guess */, typeInfo.RawSpec))
 				}
 			}
 		}
 	}
 
-	p.CustomResourceStates[groupKind] = resource
+	p.CustomResourceStates[typeIdent] = &resource
 }
 
 type generatorRequester interface {
@@ -134,19 +116,6 @@ func newGeneratorContext(pkg *loader.Package, req generatorRequester) *generator
 	}
 }
 
-// requestGenerator asks for the generator for a type in the package with the
-// given import path.
-func (c *generatorContext) requestGenerator(pkgPath, typeName string) []customresourcestate.Generator {
-	pkg := c.pkg
-	if pkgPath != "" {
-		pkg = c.pkg.Imports()[pkgPath]
-	}
-	return c.generatorRequester.NeedMetricsGeneratorFor(crd.TypeIdent{
-		Package: pkg,
-		Name:    typeName,
-	})
-}
-
 func generatorsFromMarkers(m ctrlmarkers.MarkerValues, basePath ...string) []customresourcestate.Generator {
 	generators := []customresourcestate.Generator{}
 
@@ -163,18 +132,22 @@ func generatorsFromMarkers(m ctrlmarkers.MarkerValues, basePath ...string) []cus
 	return generators
 }
 
+// NeedMetricsGeneratorFor creates the customresourcestate.Generator object for a
+// Custom Resource.
 func (p *parser) NeedMetricsGeneratorFor(typ crd.TypeIdent) []customresourcestate.Generator {
-	if _, knownMetrics := p.FlattenedMetrics[typ]; knownMetrics {
-		return nil
-	}
-
 	info, gotInfo := p.Types[typ]
 	if !gotInfo {
 		klog.Fatal("expected to get info for %v but does not exist", typ)
 	}
 
+	// Add metric generators defined by markers at the type.
 	generators := generatorsFromMarkers(info.Markers)
+
+	// Traverse fields of the object and process markers.
+	// Note: Partially inspired by controller-tools.
+	// xref: https://github.com/kubernetes-sigs/controller-tools/blob/d89d6ae3df218a85f7cd9e477157cace704b37d1/pkg/crd/schema.go#L350
 	for _, f := range info.Fields {
+		// Only fields with the `json:"..."` tag are relevant. Others are not part of the Custom Resource.
 		jsonTag, hasTag := f.Tag.Lookup("json")
 		if !hasTag {
 			// if the field doesn't have a JSON tag, it doesn't belong in output (and shouldn't exist in a serialized type)
@@ -186,30 +159,22 @@ func (p *parser) NeedMetricsGeneratorFor(typ crd.TypeIdent) []customresourcestat
 			continue
 		}
 
+		// Add metric generators defined by markers at the field.
 		generators = append(generators, generatorsFromMarkers(f.Markers, jsonOpts[0])...)
 
+		// Create new generator context and recursively process the fields.
 		generatorCtx := newGeneratorContext(typ.Package, p)
 		for _, generator := range generatorsFor(generatorCtx, f.RawField.Type) {
-			generators = append(generators, prependPathOnGenerator(generator, jsonOpts[0]))
+			generators = append(generators, addPathPrefixOnGenerator(generator, jsonOpts[0]))
 		}
 	}
 
 	return generators
 }
 
-func prependPathOnGenerator(generator customresourcestate.Generator, pathPrefix string) customresourcestate.Generator {
-	switch generator.Each.Type {
-	case customresourcestate.MetricTypeGauge:
-		generator.Each.Gauge.MetricMeta.Path = append([]string{pathPrefix}, generator.Each.Gauge.MetricMeta.Path...)
-	case customresourcestate.MetricTypeStateSet:
-		generator.Each.StateSet.MetricMeta.Path = append([]string{pathPrefix}, generator.Each.StateSet.MetricMeta.Path...)
-	case customresourcestate.MetricTypeInfo:
-		generator.Each.Info.MetricMeta.Path = append([]string{pathPrefix}, generator.Each.Info.MetricMeta.Path...)
-	}
-
-	return generator
-}
-
+// generatorsFor creates generators for the given AST type.
+// Note: Partially inspired by controller-tools.
+// xref: https://github.com/kubernetes-sigs/controller-tools/blob/d89d6ae3df218a85f7cd9e477157cace704b37d1/pkg/crd/schema.go#L167-L193
 func generatorsFor(ctx *generatorContext, rawType ast.Expr) []customresourcestate.Generator {
 	switch expr := rawType.(type) {
 	case *ast.Ident:
@@ -236,6 +201,8 @@ func generatorsFor(ctx *generatorContext, rawType ast.Expr) []customresourcestat
 	return nil
 }
 
+// localNamedToGenerators recurses back to NeedMetricsGeneratorFor for the type to
+// get generators defined at the objects in a custom resource.
 func localNamedToGenerators(ctx *generatorContext, ident *ast.Ident) []customresourcestate.Generator {
 	typeInfo := ctx.pkg.TypesInfo.TypeOf(ident)
 	if typeInfo == types.Typ[types.Invalid] {
@@ -259,4 +226,31 @@ func localNamedToGenerators(ctx *generatorContext, ident *ast.Ident) []customres
 		pkgPath = ""
 	}
 	return ctx.requestGenerator(pkgPath, typeNameInfo.Name())
+}
+
+// requestGenerator asks for the generator for a type in the package with the
+// given import path.
+func (c *generatorContext) requestGenerator(pkgPath, typeName string) []customresourcestate.Generator {
+	pkg := c.pkg
+	if pkgPath != "" {
+		pkg = c.pkg.Imports()[pkgPath]
+	}
+	return c.generatorRequester.NeedMetricsGeneratorFor(crd.TypeIdent{
+		Package: pkg,
+		Name:    typeName,
+	})
+}
+
+// addPathPrefixOnGenerator prefixes the path set at the generators MetricMeta object.
+func addPathPrefixOnGenerator(generator customresourcestate.Generator, pathPrefix string) customresourcestate.Generator {
+	switch generator.Each.Type {
+	case customresourcestate.MetricTypeGauge:
+		generator.Each.Gauge.MetricMeta.Path = append([]string{pathPrefix}, generator.Each.Gauge.MetricMeta.Path...)
+	case customresourcestate.MetricTypeStateSet:
+		generator.Each.StateSet.MetricMeta.Path = append([]string{pathPrefix}, generator.Each.StateSet.MetricMeta.Path...)
+	case customresourcestate.MetricTypeInfo:
+		generator.Each.Info.MetricMeta.Path = append([]string{pathPrefix}, generator.Each.Info.MetricMeta.Path...)
+	}
+
+	return generator
 }
