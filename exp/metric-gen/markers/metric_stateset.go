@@ -70,15 +70,6 @@ func (s stateSetMarker) ToGenerator(basePath ...string) *customresourcestate.Gen
 		}
 	}
 
-	labelsFromPath := map[string][]string{}
-	for k, v := range s.LabelsFromPath {
-		path, err := v.Parse()
-		if err != nil {
-			klog.Fatal(err)
-		}
-		labelsFromPath[k] = path
-	}
-
 	return &customresourcestate.Generator{
 		Name: s.Name,
 		Help: s.Help,
