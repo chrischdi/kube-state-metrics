@@ -20,12 +20,13 @@ import (
 	"os"
 
 	"github.com/spf13/pflag"
-	"k8s.io/kube-state-metrics/v2/exp/metric-gen/metric"
 	"sigs.k8s.io/controller-tools/pkg/genall"
 	"sigs.k8s.io/controller-tools/pkg/genall/help"
 	prettyhelp "sigs.k8s.io/controller-tools/pkg/genall/help/pretty"
 	"sigs.k8s.io/controller-tools/pkg/loader"
 	"sigs.k8s.io/controller-tools/pkg/markers"
+
+	"k8s.io/kube-state-metrics/v2/exp/metric-gen/generator"
 )
 
 const (
@@ -54,7 +55,7 @@ func main() {
 
 	// Register the metric generator itself as marker so genall.FromOptions is able to initialize the runtime properly.
 	// This also registers the markers inside the optionsRegistry so its available to print the marker docs.
-	metricGenerator := metric.Generator{}
+	metricGenerator := generator.CustomResourceConfigGenerator{}
 	defn := markers.Must(markers.MakeDefinition(generatorName, markers.DescribesPackage, metricGenerator))
 	if err := optionsRegistry.Register(defn); err != nil {
 		panic(err)
@@ -75,14 +76,14 @@ func main() {
 	// Load the passed packages as roots.
 	roots, err := loader.LoadRoots(os.Args[1:]...)
 	if err != nil {
-		fmt.Fprint(os.Stderr, fmt.Sprintf("error: loading packages %v\n", err))
+		fmt.Fprintf(os.Stderr, "error: loading packages %v\n", err)
 		os.Exit(1)
 	}
 
 	// Set up the generator runtime using controller-tools and passing our optionsRegistry.
 	rt, err := genall.FromOptions(optionsRegistry, []string{generatorName})
 	if err != nil {
-		fmt.Fprint(os.Stderr, fmt.Sprintf("error: %v\n", err))
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 

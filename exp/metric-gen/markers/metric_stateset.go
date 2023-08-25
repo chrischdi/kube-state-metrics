@@ -13,40 +13,43 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-package metric
+package markers
 
 import (
 	"sigs.k8s.io/controller-tools/pkg/markers"
 
 	"k8s.io/klog/v2"
+
 	"k8s.io/kube-state-metrics/v2/pkg/customresourcestate"
 )
 
 const (
-	// StateSetMarkerName is a marker for defining metric definitions.
-	StateSetMarkerName = "Metrics:stateset"
+	stateSetMarkerName = "Metrics:stateset"
 )
 
 func init() {
-	markerDefinitions = append(
-		markerDefinitions,
-		must(markers.MakeDefinition(StateSetMarkerName, markers.DescribesField, StateSetMarker{})).
-			help(StateSetMarker{}.help()),
-		must(markers.MakeDefinition(StateSetMarkerName, markers.DescribesType, StateSetMarker{})).
-			help(StateSetMarker{}.help()),
+	MarkerDefinitions = append(
+		MarkerDefinitions,
+		must(markers.MakeDefinition(stateSetMarkerName, markers.DescribesField, stateSetMarker{})).
+			help(stateSetMarker{}.help()),
+		must(markers.MakeDefinition(stateSetMarkerName, markers.DescribesType, stateSetMarker{})).
+			help(stateSetMarker{}.help()),
 	)
 }
 
-type StateSetMarker struct {
+// stateSetMarker is the marker to generate a stateSet type metric.
+type stateSetMarker struct {
 	Name           string
 	Help           string              `marker:"help,optional"`
-	LabelsFromPath map[string]JSONPath `marker:"labelsFromPath,optional"`
-	JSONPath       *JSONPath           `marker:"JSONPath,optional"`
+	LabelsFromPath map[string]jsonPath `marker:"labelsFromPath,optional"`
+	JSONPath       *jsonPath           `marker:"JSONPath,optional"`
 	LabelName      string              `marker:"labelName,optional"`
 	List           []string            `marker:"list"`
 }
 
-func (StateSetMarker) help() *markers.DefinitionHelp {
+var _ LocalGeneratorMarker = &stateSetMarker{}
+
+func (stateSetMarker) help() *markers.DefinitionHelp {
 	return &markers.DefinitionHelp{
 		Category: "Metrics",
 		DetailedHelp: markers.DetailedHelp{
@@ -57,7 +60,7 @@ func (StateSetMarker) help() *markers.DefinitionHelp {
 	}
 }
 
-func (s StateSetMarker) ToGenerator(basePath ...string) *customresourcestate.Generator {
+func (s stateSetMarker) ToGenerator(basePath ...string) *customresourcestate.Generator {
 	path := basePath
 
 	var valueFrom []string

@@ -13,7 +13,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-package metric
+package generator
 
 import (
 	"fmt"
@@ -26,27 +26,28 @@ import (
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-tools/pkg/crd"
 	"sigs.k8s.io/controller-tools/pkg/loader"
-	"sigs.k8s.io/controller-tools/pkg/markers"
+	ctrlmarkers "sigs.k8s.io/controller-tools/pkg/markers"
 
+	"k8s.io/kube-state-metrics/v2/exp/metric-gen/markers"
 	"k8s.io/kube-state-metrics/v2/pkg/customresourcestate"
 )
 
-type Parser struct {
+type parser struct {
 	*crd.Parser
 
 	CustomResourceStates map[schema.GroupKind]customresourcestate.Resource
 	FlattenedMetrics     map[crd.TypeIdent][]customresourcestate.Metric
 }
 
-func newParser(parser *crd.Parser) *Parser {
-	return &Parser{
-		Parser:               parser,
+func newParser(p *crd.Parser) *parser {
+	return &parser{
+		Parser:               p,
 		CustomResourceStates: make(map[schema.GroupKind]customresourcestate.Resource),
 		FlattenedMetrics:     make(map[crd.TypeIdent][]customresourcestate.Metric),
 	}
 }
 
-func (p *Parser) NeedResourceFor(groupKind schema.GroupKind) {
+func (p *parser) NeedResourceFor(groupKind schema.GroupKind) {
 	if _, exists := p.CustomResourceStates[groupKind]; exists {
 		return
 	}
@@ -61,9 +62,8 @@ func (p *Parser) NeedResourceFor(groupKind schema.GroupKind) {
 
 	resource := customresourcestate.Resource{
 		GroupVersionKind: customresourcestate.GroupVersionKind{
-			Group:   groupKind.Group,
-			Kind:    groupKind.Kind,
-			Version: "", // TODO
+			Group: groupKind.Group,
+			Kind:  groupKind.Kind,
 		},
 	}
 
@@ -74,9 +74,9 @@ func (p *Parser) NeedResourceFor(groupKind schema.GroupKind) {
 			continue
 		}
 
-		// Skip if namePrefix marker is not set to not create configuration for CRs used in other CRs.
-		// e.g. to not create configuration for KubeadmControlPlaneTemplate.
-		if m := typeInfo.Markers.Get(NameMarkerName); m == nil {
+		// Skip if gvk marker is not set to not create configuration for CRs used in other CRs.
+		// E.g. to not create configuration for KubeadmControlPlaneTemplate.
+		if m := typeInfo.Markers.Get(markers.GVKMarkerName); m == nil {
 			continue
 		}
 
@@ -101,7 +101,7 @@ func (p *Parser) NeedResourceFor(groupKind schema.GroupKind) {
 
 		for _, markerVals := range typeInfo.Markers {
 			for _, val := range markerVals {
-				if resourceMarker, isResourceMarker := val.(ResourceMarker); isResourceMarker {
+				if resourceMarker, isResourceMarker := val.(markers.ResourceMarker); isResourceMarker {
 					if err := resourceMarker.ApplyToResource(&resource); err != nil {
 						pkg.AddError(loader.ErrFromNode(err /* an okay guess */, typeInfo.RawSpec))
 					}
@@ -120,10 +120,10 @@ type generatorRequester interface {
 // generatorContext stores and provides information across a hierarchy of metric generators generation.
 type generatorContext struct {
 	pkg                *loader.Package
-	info               *markers.TypeInfo
+	info               *ctrlmarkers.TypeInfo
 	generatorRequester generatorRequester
 
-	PackageMarkers markers.MarkerValues
+	PackageMarkers ctrlmarkers.MarkerValues
 }
 
 func newGeneratorContext(pkg *loader.Package, req generatorRequester) *generatorContext {
@@ -147,12 +147,12 @@ func (c *generatorContext) requestGenerator(pkgPath, typeName string) []customre
 	})
 }
 
-func generatorsFromMarkers(m markers.MarkerValues, basePath ...string) []customresourcestate.Generator {
+func generatorsFromMarkers(m ctrlmarkers.MarkerValues, basePath ...string) []customresourcestate.Generator {
 	generators := []customresourcestate.Generator{}
 
 	for _, markerVals := range m {
 		for _, val := range markerVals {
-			if generatorMarker, isGeneratorMarker := val.(GeneratorMarker); isGeneratorMarker {
+			if generatorMarker, isGeneratorMarker := val.(markers.LocalGeneratorMarker); isGeneratorMarker {
 				if g := generatorMarker.ToGenerator(basePath...); g != nil {
 					generators = append(generators, *g)
 				}
@@ -163,7 +163,7 @@ func generatorsFromMarkers(m markers.MarkerValues, basePath ...string) []customr
 	return generators
 }
 
-func (p *Parser) NeedMetricsGeneratorFor(typ crd.TypeIdent) []customresourcestate.Generator {
+func (p *parser) NeedMetricsGeneratorFor(typ crd.TypeIdent) []customresourcestate.Generator {
 	if _, knownMetrics := p.FlattenedMetrics[typ]; knownMetrics {
 		return nil
 	}
@@ -239,9 +239,9 @@ func generatorsFor(ctx *generatorContext, rawType ast.Expr) []customresourcestat
 func localNamedToGenerators(ctx *generatorContext, ident *ast.Ident) []customresourcestate.Generator {
 	typeInfo := ctx.pkg.TypesInfo.TypeOf(ident)
 	if typeInfo == types.Typ[types.Invalid] {
-		// Expected to hit this error for types from not loaded packages
-		// TODO(chrischdi): verify
-		// klog.Warningf("Skipping unknown type: %v", loader.ErrFromNode(fmt.Errorf("unknown type %s", ident.Name), ident))
+		// It is expected to hit this error for types from not loaded transitive package dependencies.
+		// This leads to ignoring markers defined on the transitive types. Otherwise
+		// markers on transitive types would lead to additional metrics.
 		return nil
 	}
 

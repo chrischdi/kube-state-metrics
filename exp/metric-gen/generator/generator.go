@@ -13,7 +13,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-package metric
+package generator
 
 import (
 	"fmt"
@@ -23,20 +23,34 @@ import (
 	"sigs.k8s.io/controller-tools/pkg/crd"
 	"sigs.k8s.io/controller-tools/pkg/genall"
 	"sigs.k8s.io/controller-tools/pkg/loader"
-	"sigs.k8s.io/controller-tools/pkg/markers"
+	ctrlmarkers "sigs.k8s.io/controller-tools/pkg/markers"
 
+	"k8s.io/kube-state-metrics/v2/exp/metric-gen/markers"
 	"k8s.io/kube-state-metrics/v2/pkg/customresourcestate"
 )
 
-type Generator struct{}
+// CustomResourceConfigGenerator implements the Generator interface from controller-tools.
+// It uses markers to generate a custom resource configuration for kube-state-metrics from go code.
+type CustomResourceConfigGenerator struct{}
 
-func (Generator) CheckFilter() loader.NodeFilter {
-	// Re-use controller-tools filter to filter out unrelated nodes that aren't used
-	// in CRD generation, like interfaces and struct fields without JSON tag.
-	return crd.Generator{}.CheckFilter()
+var _ genall.Generator = &CustomResourceConfigGenerator{}
+var _ genall.NeedsTypeChecking = &CustomResourceConfigGenerator{}
+
+// RegisterMarkers registers all markers needed by this Generator
+// into the given registry.
+func (g CustomResourceConfigGenerator) RegisterMarkers(into *ctrlmarkers.Registry) error {
+	for _, m := range markers.MarkerDefinitions {
+		if err := m.Register(into); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
-func (g Generator) Generate(ctx *genall.GenerationContext) error {
+// Generate generates artifacts produced by this marker.
+// It's called *after* RegisterMarkers has been called.
+func (g CustomResourceConfigGenerator) Generate(ctx *genall.GenerationContext) error {
 	// Create the parser which is specific to the metric generator.
 	parser := newParser(
 		&crd.Parser{
@@ -96,7 +110,7 @@ func (g Generator) Generate(ctx *genall.GenerationContext) error {
 
 		// Either a or b will not be the empty string, so we can compare them.
 		var a, b string
-		if metrics.Spec.Resources[i].MetricNamePrefix == nil {
+		if metrics.Spec.Resources[i].MetricNamePrefix != nil {
 			a = *metrics.Spec.Resources[i].MetricNamePrefix
 		}
 		if metrics.Spec.Resources[j].MetricNamePrefix != nil {
@@ -114,19 +128,20 @@ func (g Generator) Generate(ctx *genall.GenerationContext) error {
 	return nil
 }
 
+// CheckFilter indicates the loader.NodeFilter (if any) that should be used
+// to prune out unused types/packages when type-checking (nodes for which
+// the filter returns true are considered "interesting").  This filter acts
+// as a baseline -- all types the pass through this filter will be checked,
+// but more than that may also be checked due to other generators' filters.
+func (CustomResourceConfigGenerator) CheckFilter() loader.NodeFilter {
+	// Re-use controller-tools filter to filter out unrelated nodes that aren't used
+	// in CRD generation, like interfaces and struct fields without JSON tag.
+	return crd.Generator{}.CheckFilter()
+}
+
 // addCustomResourceStateKind adds the correct kind because we don't have a correct
 // kubernetes-style object as configuration definition.
 func addCustomResourceStateKind(obj map[string]interface{}) error {
 	obj["kind"] = "CustomResourceStateMetrics"
-	return nil
-}
-
-func (g Generator) RegisterMarkers(into *markers.Registry) error {
-	for _, m := range markerDefinitions {
-		if err := m.Register(into); err != nil {
-			return err
-		}
-	}
-
 	return nil
 }

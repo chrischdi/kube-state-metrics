@@ -13,66 +13,66 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-package metric
+package markers
 
 import (
 	"sigs.k8s.io/controller-tools/pkg/markers"
 
 	"k8s.io/klog/v2"
+
 	"k8s.io/kube-state-metrics/v2/pkg/customresourcestate"
 )
 
 const (
-	// GaugeMarkerName is a marker for defining metric definitions.
-	GaugeMarkerName = "Metrics:gauge"
+	infoMarkerName = "Metrics:info"
 )
 
 func init() {
-	markerDefinitions = append(
-		markerDefinitions,
-		must(markers.MakeDefinition(GaugeMarkerName, markers.DescribesField, GaugeMarker{})).
-			help(GaugeMarker{}.help()),
-		must(markers.MakeDefinition(GaugeMarkerName, markers.DescribesType, GaugeMarker{})).
-			help(GaugeMarker{}.help()),
+	MarkerDefinitions = append(
+		MarkerDefinitions,
+		must(markers.MakeDefinition(infoMarkerName, markers.DescribesField, infoMarker{})).
+			help(infoMarker{}.help()),
+		must(markers.MakeDefinition(infoMarkerName, markers.DescribesType, infoMarker{})).
+			help(infoMarker{}.help()),
 	)
 }
 
-type GaugeMarker struct {
+// infoMarker implements localGeneratorMarker to generate a info type metric.
+type infoMarker struct {
 	Name           string
 	Help           string              `marker:"help,optional"`
-	JSONPath       JSONPath            `marker:"JSONPath,optional"`
+	LabelsFromPath map[string]jsonPath `marker:"labelsFromPath,optional"`
+	JSONPath       jsonPath            `marker:"JSONPath,optional"`
 	LabelFromKey   string              `marker:"labelFromKey,optional"`
-	LabelsFromPath map[string]JSONPath `marker:"labelsFromPath,optional"`
-	NilIsZero      bool                `marker:"nilIsZero,optional"`
-	ValueFrom      *JSONPath           `marker:"valueFrom,optional"`
 }
 
-func (GaugeMarker) help() *markers.DefinitionHelp {
+var _ LocalGeneratorMarker = &infoMarker{}
+
+func (infoMarker) help() *markers.DefinitionHelp {
 	return &markers.DefinitionHelp{
 		Category: "Metrics",
 		DetailedHelp: markers.DetailedHelp{
-			Summary: "Defines a Gauge metric and uses the implicit path to the field joined by the provided JSONPath as path for the metric configuration.",
+			Summary: "Defines a Info metric and uses the implicit path to the field as path for the metric configuration.",
 			Details: "",
 		},
 		FieldHelp: map[string]markers.DetailedHelp{},
 	}
 }
 
-func (g GaugeMarker) ToGenerator(basePath ...string) *customresourcestate.Generator {
-	additionalPath, err := g.JSONPath.Parse()
-	if err != nil {
-		klog.Fatal(err)
-	}
-	var valueFrom []string
-	if g.ValueFrom != nil {
-		valueFrom, err = g.ValueFrom.Parse()
+func (i infoMarker) ToGenerator(basePath ...string) *customresourcestate.Generator {
+	path := basePath
+	if i.JSONPath != "" {
+		valueFrom, err := i.JSONPath.Parse()
 		if err != nil {
 			klog.Fatal(err)
+		}
+		if len(valueFrom) > 0 {
+			path = append(path, valueFrom...)
 		}
 	}
 
 	labelsFromPath := map[string][]string{}
-	for k, v := range g.LabelsFromPath {
+	for k, v := range i.LabelsFromPath {
 		path := []string{}
 		var err error
 		if v != "." {
@@ -84,21 +84,17 @@ func (g GaugeMarker) ToGenerator(basePath ...string) *customresourcestate.Genera
 		labelsFromPath[k] = path
 	}
 
-	path := append(basePath, additionalPath...)
-
 	return &customresourcestate.Generator{
-		Name: g.Name,
-		Help: g.Help,
+		Name: i.Name,
+		Help: i.Help,
 		Each: customresourcestate.Metric{
-			Type: customresourcestate.MetricTypeGauge,
-			Gauge: &customresourcestate.MetricGauge{
-				NilIsZero: g.NilIsZero,
+			Type: customresourcestate.MetricTypeInfo,
+			Info: &customresourcestate.MetricInfo{
 				MetricMeta: customresourcestate.MetricMeta{
 					Path:           path,
 					LabelsFromPath: labelsFromPath,
 				},
-				LabelFromKey: g.LabelFromKey,
-				ValueFrom:    valueFrom,
+				LabelFromKey: i.LabelFromKey,
 			},
 		},
 	}
