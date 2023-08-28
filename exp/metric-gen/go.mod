@@ -1,4 +1,4 @@
-module k8s.io/kube-state-metrics/v2/exp/metric-gen
+module k8s.io/kube-state-metrics/exp/metric-gen/v2
 
 go 1.19
 

@@ -25,7 +25,7 @@ import (
 	"sigs.k8s.io/controller-tools/pkg/loader"
 	ctrlmarkers "sigs.k8s.io/controller-tools/pkg/markers"
 
-	"k8s.io/kube-state-metrics/v2/exp/metric-gen/markers"
+	"k8s.io/kube-state-metrics/exp/metric-gen/v2/markers"
 	"k8s.io/kube-state-metrics/v2/pkg/customresourcestate"
 )
 

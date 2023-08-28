@@ -29,7 +29,7 @@ import (
 
 	"k8s.io/klog/v2"
 
-	"k8s.io/kube-state-metrics/v2/exp/metric-gen/generator"
+	"k8s.io/kube-state-metrics/exp/metric-gen/v2/generator"
 )
 
 const (
